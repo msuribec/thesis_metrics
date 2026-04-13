@@ -50,6 +50,7 @@ st.markdown("""
     background: #f8f9fa;
     border: 1px solid #dee2e6;
     border-radius: 6px;
+    color: #000;
     padding: 10px 14px;
     font-family: monospace;
     font-size: 0.92rem;
