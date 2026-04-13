@@ -19,6 +19,7 @@ from sklearn.metrics import (
 )
 import plotly.graph_objects as go
 import plotly.express as px
+from plotly.subplots import make_subplots
 import io
 
 # ─────────────────────────────────────────────
@@ -156,6 +157,41 @@ def levenshtein_words(ref: list, hyp: list):
         else:
             D += 1; i -= 1
     return S, D, I, n
+
+
+def compute_rrf(df: pd.DataFrame, k: int = 60) -> pd.Series:
+    """Compute RRF score from severity_score, faithfulness_pair, context_coverage_pair."""
+    rank_sev   = df['severity_score'].rank(ascending=False, method='first').astype(int)
+    rank_faith = df['faithfulness_pair'].rank(ascending=False, method='first').astype(int)
+    rank_ctx   = df['context_coverage_pair'].rank(ascending=False, method='first').astype(int)
+    return (1 / (k + rank_sev) + 1 / (k + rank_faith) + 1 / (k + rank_ctx))
+
+
+def compute_gain_lift(y_true: pd.Series, scores: pd.Series, D: int = 10):
+    """
+    Compute cumulative gain and lift curves.
+    Returns DataFrame with columns: decile, pct_reviewed, n_inspected,
+                                    cum_violations, cum_gain, lift.
+    """
+    N = len(y_true)
+    total_pos = y_true.sum()
+    order = scores.argsort()[::-1].values  # descending
+
+    rows = []
+    for d in range(1, D + 1):
+        top_n = int(d * N / D)
+        cum_pos = int(y_true.iloc[order[:top_n]].sum())
+        cum_gain = cum_pos / total_pos if total_pos > 0 else 0
+        lift = cum_gain / (d / D)
+        rows.append({
+            "Decil": d,
+            "% revisado": d * 10,
+            "Pares inspeccionados": top_n,
+            "Infracciones capturadas": cum_pos,
+            "GananciaAcum": round(cum_gain, 4),
+            "Lift": round(lift, 4),
+        })
+    return pd.DataFrame(rows)
 
 
 def compute_wer_ftwer(asr_df: pd.DataFrame, fin_terms: set):
@@ -412,7 +448,9 @@ with tab_rag:
             "Predicciones RAG por llamada y regla",
             type=["csv"],
             key="rag_pred",
-            help="Columnas: call_id, rule_id, y_true, y_pred, severity_score, routed_to_human",
+            help="Columnas: call_id, rule_id, y_true, y_pred, severity_score, "
+                 "routed_to_human. Opcionales para RRF: faithfulness_pair, "
+                 "context_coverage_pair, rrf_score.",
         )
 
     with col_info2:
@@ -422,12 +460,17 @@ with tab_rag:
         formula_box("F1_weighted = Σ(sup_r · F1_r) / Σ(sup_r)")
         formula_box("AUROC = P(ŝ_i > ŝ_j | y_i=1, y_j=0)")
         formula_box("HRR = #{pares enrutados} / #{pares totales}")
+        formula_box("RRF(i) = Σ_l 1/(60 + rank_l(i))  [l ∈ {G-Eval, Faith, CtxCov}]")
+        formula_box("GananciaAcum(d) = Σ_{top dN/D} y_π(i)  /  n₊")
+        formula_box("Lift(d) = GananciaAcum(d) / (d/D)")
 
     st.markdown("---")
 
     if f_rag:
         rag_df = load_csv(f_rag)
         required = {"rule_id", "y_true", "y_pred", "severity_score", "routed_to_human"}
+        rrf_cols = {"faithfulness_pair", "context_coverage_pair"}
+        has_rrf_cols = rrf_cols.issubset(rag_df.columns)
         if not required.issubset(rag_df.columns):
             st.error(f"Columnas requeridas: {required}")
         else:
@@ -529,6 +572,120 @@ with tab_rag:
                     height=380,
                 )
                 st.plotly_chart(fig_hist, use_container_width=True)
+
+            # ── RRF + Gain/Lift ──────────────────────────────────────────────
+            st.markdown("---")
+            st.markdown("#### 📈 Curvas de Ganancia Acumulada y Lift — Ranking RRF")
+            st.markdown(
+                "Las curvas de ganancia y lift miden cuántas infracciones captura el sistema "
+                "al revisar únicamente la fracción de mayor riesgo del ranking RRF "
+                "(fusión de G-Eval severidad + Fidelidad RAGAS + Cobertura de Contexto RAGAS)."
+            )
+
+            # Compute or reuse RRF score
+            if "rrf_score" in rag_df.columns:
+                rrf_scores = rag_df["rrf_score"]
+                st.info("✅ Usando columna `rrf_score` del archivo cargado.")
+            elif has_rrf_cols:
+                rrf_scores = compute_rrf(rag_df)
+                auroc_rrf = roc_auc_score(rag_df["y_true"], rrf_scores)
+                st.success(
+                    f"RRF calculado a partir de `severity_score`, `faithfulness_pair` y "
+                    f"`context_coverage_pair`. AUROC RRF = **{auroc_rrf:.4f}** "
+                    f"(vs. AUROC severidad = {auroc:.4f})"
+                )
+            else:
+                rrf_scores = rag_df["severity_score"]
+                st.warning(
+                    "No se encontraron columnas `faithfulness_pair` / `context_coverage_pair`. "
+                    "Usando únicamente `severity_score` como señal de ranking."
+                )
+
+            gain_lift_df = compute_gain_lift(rag_df["y_true"].reset_index(drop=True),
+                                             rrf_scores.reset_index(drop=True), D=10)
+
+            # KPIs
+            lift1 = gain_lift_df.loc[0, "Lift"]
+            gain1 = gain_lift_df.loc[0, "GananciaAcum"]
+            d_90pct = gain_lift_df[gain_lift_df["GananciaAcum"] >= 0.90].iloc[0]["% revisado"]
+
+            c_l1, c_l2, c_l3 = st.columns(3)
+            with c_l1:
+                metric_card("Lift@10%", f"{lift1:.2f}×",
+                            f"Captura {gain1*100:.1f}% de infracciones")
+            with c_l2:
+                metric_card("90% infracciones cubiertas al", f"{int(d_90pct)}% revisado",
+                            "del ranking RRF")
+            with c_l3:
+                total_viol = int(rag_df["y_true"].sum())
+                metric_card("Total infracciones reales", f"{total_viol:,}",
+                            f"de {len(rag_df):,} pares")
+
+            # Dual chart: Gain + Lift
+            fig_gl = make_subplots(
+                rows=1, cols=2,
+                subplot_titles=("Curva de Ganancia Acumulada", "Curva de Lift"),
+            )
+
+            pct_vals   = gain_lift_df["% revisado"].tolist()
+            gain_vals  = gain_lift_df["GananciaAcum"].tolist()
+            lift_vals  = gain_lift_df["Lift"].tolist()
+
+            # Ganancia acumulada
+            fig_gl.add_trace(go.Scatter(
+                x=[0] + pct_vals, y=[0] + gain_vals,
+                mode="lines+markers",
+                name="RRF (modelo)",
+                line=dict(color="#1e508c", width=2.5),
+                marker=dict(size=7),
+            ), row=1, col=1)
+            fig_gl.add_trace(go.Scatter(
+                x=[0, 100], y=[0, 1],
+                mode="lines",
+                name="Aleatorio",
+                line=dict(dash="dash", color="gray", width=1.5),
+                showlegend=True,
+            ), row=1, col=1)
+
+            # Lift
+            fig_gl.add_trace(go.Scatter(
+                x=pct_vals, y=lift_vals,
+                mode="lines+markers",
+                name="Lift RRF",
+                line=dict(color="#1e508c", width=2.5),
+                marker=dict(size=7),
+                showlegend=False,
+            ), row=1, col=2)
+            fig_gl.add_hline(y=1, line_dash="dash", line_color="gray",
+                             annotation_text="Base aleatoria (1×)", row=1, col=2)
+
+            fig_gl.update_xaxes(title_text="% del ranking inspeccionado", row=1, col=1)
+            fig_gl.update_xaxes(title_text="% del ranking inspeccionado", row=1, col=2)
+            fig_gl.update_yaxes(title_text="Fracción de infracciones capturadas", row=1, col=1,
+                                range=[0, 1.05])
+            fig_gl.update_yaxes(title_text="Factor de mejora vs. aleatorio", row=1, col=2,
+                                range=[0, max(lift_vals) * 1.1])
+            fig_gl.update_layout(height=420, legend=dict(x=0.01, y=0.99))
+            st.plotly_chart(fig_gl, use_container_width=True)
+
+            # Gain/Lift table
+            with st.expander("Tabla completa de Ganancia Acumulada y Lift por decil"):
+                display_df = gain_lift_df.copy()
+                display_df.columns = [
+                    "Decil", "% revisado", "Pares inspeccionados",
+                    "Infracc. capturadas", "GananciaAcum", "Lift"
+                ]
+                st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+                # Download button
+                csv_bytes = display_df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="⬇ Descargar tabla (CSV)",
+                    data=csv_bytes,
+                    file_name="gain_lift_rrf.csv",
+                    mime="text/csv",
+                )
+
     else:
         st.info("Cargue el archivo de predicciones RAG para calcular las métricas de detección de cumplimiento.")
 
