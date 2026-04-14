@@ -161,10 +161,10 @@ def levenshtein_words(ref: list, hyp: list):
 
 
 def compute_rrf(df: pd.DataFrame, k: int = 60) -> pd.Series:
-    """Compute RRF score from severity_score, faithfulness_pair, context_coverage_pair."""
+    """Compute RRF score from severity_score, faithfulness, context_coverage."""
     rank_sev   = df['severity_score'].rank(ascending=False, method='first').astype(int)
-    rank_faith = df['faithfulness_pair'].rank(ascending=False, method='first').astype(int)
-    rank_ctx   = df['context_coverage_pair'].rank(ascending=False, method='first').astype(int)
+    rank_faith = df['faithfulness'].rank(ascending=False, method='first').astype(int)
+    rank_ctx   = df['context_coverage'].rank(ascending=False, method='first').astype(int)
     return (1 / (k + rank_sev) + 1 / (k + rank_faith) + 1 / (k + rank_ctx))
 
 
@@ -450,8 +450,8 @@ with tab_rag:
             type=["csv"],
             key="rag_pred",
             help="Columnas: call_id, rule_id, y_true, y_pred, severity_score, "
-                 "routed_to_human. Opcionales para RRF: faithfulness_pair, "
-                 "context_coverage_pair, rrf_score.",
+                 "routed_to_human. Opcionales para RRF: faithfulness, "
+                 "context_coverage, rrf_score.",
         )
 
     with col_info2:
@@ -470,7 +470,7 @@ with tab_rag:
     if f_rag:
         rag_df = load_csv(f_rag)
         required = {"rule_id", "y_true", "y_pred", "severity_score", "routed_to_human"}
-        rrf_cols = {"faithfulness_pair", "context_coverage_pair"}
+        rrf_cols = {"faithfulness", "context_coverage", "severity_score"}
         has_rrf_cols = rrf_cols.issubset(rag_df.columns)
         if not required.issubset(rag_df.columns):
             st.error(f"Columnas requeridas: {required}")
@@ -484,7 +484,7 @@ with tab_rag:
                 f1_list.append(f1_score(sub["y_true"], sub["y_pred"], zero_division=0))
                 prec_list.append(precision_score(sub["y_true"], sub["y_pred"], zero_division=0))
                 rec_list.append(recall_score(sub["y_true"], sub["y_pred"], zero_division=0))
-                sup_list.append(int(sub["y_true"].sum()))
+                sup_list.append(int(sub["y_true"].sum())) # TP + TN 
 
             macro_f1    = float(np.mean(f1_list))
             weighted_f1 = float(np.average(f1_list, weights=sup_list))
@@ -583,22 +583,19 @@ with tab_rag:
                 "(fusión de G-Eval severidad + Fidelidad RAGAS + Cobertura de Contexto RAGAS)."
             )
 
-            # Compute or reuse RRF score
-            if "rrf_score" in rag_df.columns:
-                rrf_scores = rag_df["rrf_score"]
-                st.info("✅ Usando columna `rrf_score` del archivo cargado.")
-            elif has_rrf_cols:
+            # Compute  RRF score
+            if has_rrf_cols:
                 rrf_scores = compute_rrf(rag_df)
                 auroc_rrf = roc_auc_score(rag_df["y_true"], rrf_scores)
                 st.success(
-                    f"RRF calculado a partir de `severity_score`, `faithfulness_pair` y "
-                    f"`context_coverage_pair`. AUROC RRF = **{auroc_rrf:.4f}** "
+                    f"RRF calculado a partir de `severity_score`, `faithfulness` y "
+                    f"`context_coverage`. AUROC RRF = **{auroc_rrf:.4f}** "
                     f"(vs. AUROC severidad = {auroc:.4f})"
                 )
             else:
                 rrf_scores = rag_df["severity_score"]
                 st.warning(
-                    "No se encontraron columnas `faithfulness_pair` / `context_coverage_pair`. "
+                    "No se encontraron columnas `faithfulness` / `context_coverage`. "
                     "Usando únicamente `severity_score` como señal de ranking."
                 )
 
