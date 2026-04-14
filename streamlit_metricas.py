@@ -590,7 +590,7 @@ with tab_rag:
                 st.success(
                     f"RRF calculado a partir de `severity_score`, `faithfulness` y "
                     f"`context_coverage`. AUROC RRF = **{auroc_rrf:.4f}** "
-                    f"(vs. AUROC severidad = {auroc:.4f})"
+                    f"(vs. AUROC = {roc_auc:.4f})"
                 )
             else:
                 rrf_scores = rag_df["severity_score"]
