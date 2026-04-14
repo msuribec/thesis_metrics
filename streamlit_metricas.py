@@ -488,7 +488,7 @@ with tab_rag:
 
             macro_f1    = float(np.mean(f1_list))
             weighted_f1 = float(np.average(f1_list, weights=sup_list))
-            auroc       = roc_auc_score(rag_df["y_true"], rag_df["y_pred"])
+            roc_auc       = roc_auc_score(rag_df["y_true"], rag_df["y_pred"])
             hrr         = rag_df["routed_to_human"].mean() * 100
 
             # ── Métricas globales ──
@@ -499,7 +499,7 @@ with tab_rag:
             with c2:
                 metric_card("F₁ ponderado", f"{weighted_f1:.4f}", "↑ mayor es mejor")
             with c3:
-                metric_card("AUROC", f"{auroc:.4f}", "↑ mayor es mejor")
+                metric_card("ROC AUC", f"{roc_auc:.4f}", "↑ mayor es mejor")
             with c4:
                 metric_card("Revisión humana", f"{hrr:.2f}%", "↓ menor es mejor")
 
