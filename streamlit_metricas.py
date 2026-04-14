@@ -538,7 +538,7 @@ with tab_rag:
 
             # ── Curva ROC ──
             with st.expander("Curva ROC sobre puntuaciones de severidad G-Eval"):
-                fpr, tpr, _ = roc_curve(rag_df["y_true"], rag_df["severity_score"])
+                fpr, tpr, _ = roc_curve(rag_df["y_true"], rag_df["y_pred"])
                 fig_roc = go.Figure()
                 fig_roc.add_trace(go.Scatter(x=fpr, y=tpr, mode="lines",
                                              name=f"ROC (AUROC = {roc_auc:.4f})",
