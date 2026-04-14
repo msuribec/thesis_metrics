@@ -541,7 +541,7 @@ with tab_rag:
                 fpr, tpr, _ = roc_curve(rag_df["y_true"], rag_df["severity_score"])
                 fig_roc = go.Figure()
                 fig_roc.add_trace(go.Scatter(x=fpr, y=tpr, mode="lines",
-                                             name=f"ROC (AUROC = {auroc:.4f})",
+                                             name=f"ROC (AUROC = {roc_auc:.4f})",
                                              line=dict(color="#1e508c", width=2)))
                 fig_roc.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode="lines",
                                              line=dict(dash="dash", color="gray"),
