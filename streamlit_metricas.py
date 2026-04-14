@@ -488,7 +488,7 @@ with tab_rag:
 
             macro_f1    = float(np.mean(f1_list))
             weighted_f1 = float(np.average(f1_list, weights=sup_list))
-            auroc       = roc_auc_score(rag_df["y_true"], rag_df["severity_score"])
+            auroc       = roc_auc_score(rag_df["y_true"], rag_df["y_pred"])
             hrr         = rag_df["routed_to_human"].mean() * 100
 
             # ── Métricas globales ──
