@@ -594,9 +594,9 @@ with tab_rag:
                 )
             else:
                 rrf_scores = rag_df["severity_score"]
+                missing_cols = rrf_cols - set(rag_df.columns)
                 st.warning(
-                    "No se encontraron columnas `faithfulness` / `context_coverage`. "
-                    "Usando únicamente `severity_score` como señal de ranking."
+                    "No se encontraron columnas completas para calcular RRF (faltan: "f"{missing_cols}). Se usará `severity_score` como ranking de riesgo."
                 )
 
             gain_lift_df = compute_gain_lift(rag_df["y_true"].reset_index(drop=True),
